@@ -2953,7 +2953,21 @@ def get_connection_guide_keyboard(
     language: str = DEFAULT_LANGUAGE,
     has_other_apps: bool = False,
     sub_id: int | None = None,
+    crypto_redirect_url: str | None = None,
 ) -> InlineKeyboardMarkup:
+    """Клавиатура гайда подключения для выбранного устройства.
+
+    Args:
+        subscription_url: Ссылка подписки.
+        app: Данные приложения из конфига.
+        device_type: Тип устройства (ios, android, ...).
+        language: Язык пользователя.
+        has_other_apps: Есть ли другие приложения для этого устройства.
+        sub_id: ID подписки (для multi-tariff).
+        crypto_redirect_url: Если задана — используется как URL для кнопки
+            "Подключиться" вместо вычисленного из subscription_url.
+            Применяется при CONNECT_BUTTON_GUIDE_CRYPTOLINK_ENABLED=true.
+    """
     texts = get_texts(language)
     back_cb = f'sm:{sub_id}' if sub_id and settings.is_multi_tariff_enabled() else 'menu_subscription'
 
@@ -2991,25 +3005,30 @@ def get_connection_guide_keyboard(
                         ]
                     )
             elif btn_type == 'subscriptionLink':
-                # First try to resolve the button's URL template
-                url = resolved_url or resolve_button_url(btn_url, subscription_url)
-
-                # If button has no template, try deep link
-                if not btn_url or '{{SUBSCRIPTION_LINK}}' not in btn_url:
-                    deep_link = create_deep_link(app.get('_raw', app), subscription_url)
-                    final_url = deep_link or url or subscription_url
+                # Если передан crypto_redirect_url — используем его напрямую
+                # (режим CONNECT_BUTTON_GUIDE_CRYPTOLINK_ENABLED)
+                if crypto_redirect_url:
+                    final_url = crypto_redirect_url
                 else:
-                    final_url = url or subscription_url
+                    # First try to resolve the button's URL template
+                    url = resolved_url or resolve_button_url(btn_url, subscription_url)
 
-                # Telegram doesn't support custom URL schemes — wrap with redirect
-                if final_url and not final_url.startswith(('http://', 'https://')):
-                    template = settings.get_happ_cryptolink_redirect_template()
-                    if template:
-                        wrapped_url = build_redirect_link(final_url, template)
-                        if wrapped_url:
-                            final_url = wrapped_url
+                    # If button has no template, try deep link
+                    if not btn_url or '{{SUBSCRIPTION_LINK}}' not in btn_url:
+                        deep_link = create_deep_link(app.get('_raw', app), subscription_url)
+                        final_url = deep_link or url or subscription_url
                     else:
-                        final_url = subscription_url
+                        final_url = url or subscription_url
+
+                    # Telegram doesn't support custom URL schemes — wrap with redirect
+                    if final_url and not final_url.startswith(('http://', 'https://')):
+                        template = settings.get_happ_cryptolink_redirect_template()
+                        if template:
+                            wrapped_url = build_redirect_link(final_url, template)
+                            if wrapped_url:
+                                final_url = wrapped_url
+                        else:
+                            final_url = subscription_url
 
                 if final_url:
                     keyboard.append(
@@ -3122,6 +3141,7 @@ def get_specific_app_keyboard(
     device_type: str,
     language: str = DEFAULT_LANGUAGE,
     sub_id: int | None = None,
+    crypto_redirect_url: str | None = None,
 ) -> InlineKeyboardMarkup:
     # Reuse the connection guide keyboard logic — same buttons, just always shows "Other apps"
     return get_connection_guide_keyboard(
@@ -3131,6 +3151,7 @@ def get_specific_app_keyboard(
         language,
         has_other_apps=True,
         sub_id=sub_id,
+        crypto_redirect_url=crypto_redirect_url,
     )
 
 

@@ -10,6 +10,7 @@ from app.keyboards.inline import (
     get_happ_cryptolink_keyboard,
     get_happ_download_button_row,
 )
+from app.lib.guide_cryptolink import is_guide_cryptolink_enabled
 from app.localization.texts import get_texts
 from app.utils.subscription_utils import (
     convert_subscription_link_to_happ_scheme,
@@ -261,6 +262,14 @@ async def handle_open_subscription_link(
     if subscription is None:
         return
     subscription_link = get_display_subscription_link(subscription)
+
+    # В режиме guide + CONNECT_BUTTON_GUIDE_CRYPTOLINK_ENABLED показываем
+    # raw cryptoLink (happ://crypt4/...) вместо обычной subscription_url
+    if is_guide_cryptolink_enabled():
+        crypto_link = getattr(subscription, 'subscription_crypto_link', None)
+        if crypto_link:
+            subscription_link = crypto_link
+
     back_cb = f'sm:{sub_id}' if settings.is_multi_tariff_enabled() else 'menu_subscription'
 
     if not subscription_link:
@@ -319,7 +328,12 @@ async def handle_open_subscription_link(
     link_text = (
         texts.t('SUBSCRIPTION_DEVICE_LINK_TITLE', '🔗 <b>Ссылка подписки:</b>')
         + '\n\n'
-        + f'<code>{subscription_link}</code>\n\n'
+        + (
+            f'<blockquote expandable><code>{subscription_link}</code></blockquote>'
+            if is_guide_cryptolink_enabled()
+            else f'<code>{subscription_link}</code>'
+        )
+        + '\n\n'
         + texts.t('SUBSCRIPTION_LINK_USAGE_TITLE', '📱 <b>Как использовать:</b>')
         + '\n'
         + '\n'.join(

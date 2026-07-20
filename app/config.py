@@ -950,6 +950,17 @@ class Settings(BaseSettings):
     # Стиль кнопок Cabinet: primary (синий), success (зелёный), danger (красный), '' (по умолчанию для каждой секции)
     CABINET_BUTTON_STYLE: str = ''
     CONNECT_BUTTON_MODE: str = 'miniapp_subscription'
+    # В режиме CONNECT_BUTTON_MODE=guide заменяет ссылку подписки на cryptoLink
+    # с редиректом через HAPP_CRYPTOLINK_REDIRECT_TEMPLATE (аналогично happ_cryptolink).
+    CONNECT_BUTTON_GUIDE_CRYPTOLINK_ENABLED: bool = False
+    # Режим работы кнопки "Инфо":
+    #   standard — стандартное меню (FAQ, правила, оферта, страницы)
+    #   custom   — показать кастомные кнопки-ссылки из JSON-файла
+    INFO_BUTTON_MODE: str = 'standard'
+    # Путь к JSON-файлу с кастомными кнопками для INFO_BUTTON_MODE=custom.
+    # Может быть абсолютным или относительным (от корня проекта).
+    # По умолчанию: data/custom_info_buttons.json
+    CUSTOM_INFO_BUTTONS_PATH: str = 'data/custom_info_buttons.json'
     MINIAPP_CUSTOM_URL: str = ''
     MINIAPP_STATIC_PATH: str = 'miniapp'
     # Короткое имя Telegram Mini App (BotFather → /newapp), напр. 'cabinet'.
@@ -2832,6 +2843,10 @@ class Settings(BaseSettings):
 
     def is_happ_cryptolink_mode(self) -> bool:
         return self.CONNECT_BUTTON_MODE == 'happ_cryptolink'
+
+    def is_custom_info_mode(self) -> bool:
+        """Returns True when INFO_BUTTON_MODE is set to 'custom'."""
+        return self.INFO_BUTTON_MODE.strip().lower() == 'custom'
 
     def is_happ_download_button_enabled(self) -> bool:
         return self.is_happ_cryptolink_mode() and self.CONNECT_BUTTON_HAPP_DOWNLOAD_ENABLED

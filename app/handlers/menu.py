@@ -9,6 +9,7 @@ from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.lib import custom_info as custom_info_module
 from app.database.crud.info_pages import get_all_info_pages, get_info_page_by_id
 from app.database.crud.promo_group import (
     get_auto_assign_promo_groups,
@@ -364,6 +365,33 @@ async def show_info_menu(
 
     texts = get_texts(db_user.language)
 
+    # --- Кастомный режим кнопки «Инфо» ---
+    if settings.is_custom_info_mode():
+        config = custom_info_module.load_custom_info_config()
+
+        # Заголовок
+        custom_title = custom_info_module.get_custom_info_title(config, db_user.language)
+        custom_prompt = custom_info_module.get_custom_info_prompt(config, db_user.language)
+
+        header = custom_title or texts.t('MENU_INFO_HEADER', 'ℹ️ <b>Инфо</b>')
+        prompt = custom_prompt or texts.t('MENU_INFO_PROMPT', 'Выберите раздел:')
+        caption = f'{header}\n\n{prompt}' if prompt else header
+
+        keyboard = custom_info_module.build_custom_info_keyboard(
+            config=config,
+            language=db_user.language,
+        )
+
+        await edit_or_answer_photo(
+            callback=callback,
+            caption=caption,
+            keyboard=keyboard,
+            parse_mode='HTML',
+        )
+        await callback.answer()
+        return
+
+    # --- Стандартный режим ---
     header = texts.t('MENU_INFO_HEADER', 'ℹ️ <b>Инфо</b>')
     prompt = texts.t('MENU_INFO_PROMPT', 'Выберите раздел:')
     caption = f'{header}\n\n{prompt}' if prompt else header
@@ -396,6 +424,104 @@ async def show_info_menu(
             custom_pages=custom_pages,
         ),
         parse_mode='HTML',
+    )
+    await callback.answer()
+
+
+# ──────────────────────────────────────────────
+# Подменю кастомного режима "Инфо"
+# ──────────────────────────────────────────────
+
+
+async def show_custom_info_submenu(
+    callback: types.CallbackQuery,
+    db_user: User,
+    db: AsyncSession,
+):
+    """Обработать нажатие на кнопку подменю в кастомном режиме Info."""
+    if db_user is None:
+        texts = get_texts(settings.DEFAULT_LANGUAGE)
+        await callback.answer(
+            texts.t("USER_NOT_FOUND_ERROR", "Ошибка: пользователь не найден."),
+            show_alert=True,
+        )
+        return
+
+    # Извлекаем индекс подменю из callback_data: "custom_info_submenu:<index>"
+    try:
+        submenu_index = int(callback.data.split(":")[1])
+    except (IndexError, ValueError):
+        await callback.answer("Ошибка: некорректные данные.", show_alert=True)
+        return
+
+    texts = get_texts(db_user.language)
+    config = custom_info_module.load_custom_info_config()
+    submenu = custom_info_module.get_submenu_by_index(config, submenu_index)
+
+    if submenu is None or not submenu.buttons:
+        await callback.answer(
+            texts.t("MENU_INFO_EMPTY", "Раздел пока пуст."),
+            show_alert=True,
+        )
+        return
+
+    # Заголовок подменю
+    submenu_title = custom_info_module.get_submenu_title(submenu, db_user.language)
+    submenu_prompt = custom_info_module.get_submenu_prompt(submenu, db_user.language)
+
+    header = submenu_title or texts.t("MENU_INFO_HEADER", "ℹ️ <b>Инфо</b>")
+    prompt = submenu_prompt
+    caption = f"{header}\n\n{prompt}" if prompt else header
+
+    keyboard = custom_info_module.build_submenu_keyboard(
+        submenu=submenu,
+        language=db_user.language,
+        back_callback="back_to_custom_info_root",
+    )
+
+    await edit_or_answer_photo(
+        callback=callback,
+        caption=caption,
+        keyboard=keyboard,
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+async def back_to_custom_info_root(
+    callback: types.CallbackQuery,
+    db_user: User,
+    db: AsyncSession,
+):
+    """Вернуться из подменю в корень кастомного Info."""
+    if db_user is None:
+        texts = get_texts(settings.DEFAULT_LANGUAGE)
+        await callback.answer(
+            texts.t("USER_NOT_FOUND_ERROR", "Ошибка: пользователь не найден."),
+            show_alert=True,
+        )
+        return
+
+    texts = get_texts(db_user.language)
+    config = custom_info_module.load_custom_info_config()
+
+    custom_title = custom_info_module.get_custom_info_title(config, db_user.language)
+    custom_prompt = custom_info_module.get_custom_info_prompt(config, db_user.language)
+
+    header = custom_title or texts.t("MENU_INFO_HEADER", "ℹ️ <b>Инфо</b>")
+    prompt = custom_prompt or texts.t("MENU_INFO_PROMPT", "Выберите раздел:")
+    caption = f"{header}\n\n{prompt}" if prompt else header
+
+    keyboard = custom_info_module.build_custom_info_keyboard(
+        config=config,
+        language=db_user.language,
+    )
+
+    await edit_or_answer_photo(
+        callback=callback,
+        caption=caption,
+        keyboard=keyboard,
+        parse_mode="HTML",
     )
     await callback.answer()
 
@@ -1732,6 +1858,16 @@ def register_handlers(dp: Dispatcher):
     dp.callback_query.register(
         show_info_menu,
         F.data == 'menu_info',
+    )
+
+    dp.callback_query.register(
+        show_custom_info_submenu,
+        F.data.startswith('custom_info_submenu:'),
+    )
+
+    dp.callback_query.register(
+        back_to_custom_info_root,
+        F.data == 'back_to_custom_info_root',
     )
 
     dp.callback_query.register(

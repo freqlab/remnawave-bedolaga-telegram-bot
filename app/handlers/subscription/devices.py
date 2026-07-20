@@ -42,6 +42,7 @@ from app.utils.pricing_utils import (
     apply_percentage_discount,
     calculate_prorated_price,
 )
+from app.lib.guide_cryptolink import get_guide_cryptolink_redirect_url
 from app.utils.subscription_utils import (
     get_display_subscription_link,
 )
@@ -1838,6 +1839,10 @@ async def handle_device_guide(callback: types.CallbackQuery, db_user: User, db: 
         ]
     )
 
+    # В режиме CONNECT_BUTTON_GUIDE_CRYPTOLINK_ENABLED получаем редирект-ссылку
+    # с cryptoLink для кнопки "Подключиться" в гайде
+    crypto_redirect_url = get_guide_cryptolink_redirect_url(subscription)
+
     await callback.message.edit_text(
         guide_text,
         reply_markup=get_connection_guide_keyboard(
@@ -1847,6 +1852,7 @@ async def handle_device_guide(callback: types.CallbackQuery, db_user: User, db: 
             db_user.language,
             has_other_apps=bool(other_apps),
             sub_id=sub_id,
+            crypto_redirect_url=crypto_redirect_url,
         ),
         parse_mode='HTML',
     )
@@ -1947,6 +1953,9 @@ async def handle_specific_app_guide(
     if blocks_text:
         guide_text += blocks_text + '\n\n'
 
+    # В режиме CONNECT_BUTTON_GUIDE_CRYPTOLINK_ENABLED получаем редирект-ссылку
+    crypto_redirect_url = get_guide_cryptolink_redirect_url(subscription)
+
     await callback.message.edit_text(
         guide_text,
         reply_markup=get_specific_app_keyboard(
@@ -1955,6 +1964,7 @@ async def handle_specific_app_guide(
             device_type,
             db_user.language,
             sub_id=sub_id,
+            crypto_redirect_url=crypto_redirect_url,
         ),
         parse_mode='HTML',
     )
