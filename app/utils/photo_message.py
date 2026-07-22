@@ -11,12 +11,18 @@ from app.config import settings
 from .message_patch import (
     LOGO_PATH,
     _cache_logo_file_id,
+    _current_section,
     append_privacy_hint,
     caption_exceeds_telegram_limit,
     get_logo_media,
     is_privacy_restricted_error,
     is_qr_message,
     prepare_privacy_safe_kwargs,
+)
+from .section_photos import (
+    cache_section_file_id as _cache_section_file_id,
+    get_section_media as _get_section_media,
+    get_section_photo_path as _get_section_photo_path,
 )
 
 
@@ -28,11 +34,28 @@ RETRY_DELAY = 0.5
 
 def _resolve_media(message: types.Message):
     if isinstance(message, InaccessibleMessage):
-        return get_logo_media()
+        return _get_section_or_logo_media()
     if settings.ENABLE_LOGO_MODE and not is_qr_message(message):
-        return get_logo_media()
+        return _get_section_or_logo_media()
     if message.photo and not is_qr_message(message):
         return message.photo[-1].file_id
+    return _get_section_or_logo_media()
+
+
+def _get_section_or_logo_media():
+    """Возвращает медиа для текущего раздела или логотип по умолчанию.
+
+    При ENABLE_SECTION_PHOTOS=true использует фото раздела из контекстной
+    переменной _current_section. Иначе — обычный логотип.
+    """
+    section = _current_section.get()
+    if settings.ENABLE_SECTION_PHOTOS and section:
+        try:
+            media = _get_section_media(section)
+            if media is not None:
+                return media
+        except Exception:
+            pass
     return get_logo_media()
 
 
@@ -113,13 +136,37 @@ async def edit_or_answer_photo(
     parse_mode: str | None = 'HTML',
     *,
     force_text: bool = False,
+    section: str | None = None,
 ) -> None:
     resolved_parse_mode = parse_mode or 'HTML'
+
+    # Определяем раздел из callback, если не передан явно
+    if section is None:
+        section = _current_section.get()
+
+    # Определяем, используем ли секционные фото
+    use_section_photos = settings.ENABLE_SECTION_PHOTOS and section is not None
 
     # Если сообщение недоступно, отправляем новое сообщение
     if isinstance(callback.message, InaccessibleMessage):
         try:
-            if settings.ENABLE_LOGO_MODE and LOGO_PATH.exists():
+            if use_section_photos:
+                section_media = _get_section_media(section)
+                if section_media is not None:
+                    result = await callback.message.answer_photo(
+                        photo=section_media,
+                        caption=caption,
+                        reply_markup=keyboard,
+                        parse_mode=resolved_parse_mode,
+                    )
+                    _cache_section_file_id(section, result)
+                else:
+                    await callback.message.answer(
+                        caption,
+                        reply_markup=keyboard,
+                        parse_mode=resolved_parse_mode,
+                    )
+            elif settings.ENABLE_LOGO_MODE and LOGO_PATH.exists():
                 result = await callback.message.answer_photo(
                     photo=get_logo_media(),
                     caption=caption,
@@ -146,7 +193,7 @@ async def edit_or_answer_photo(
         return
 
     # Если режим логотипа выключен или требуется текстовое сообщение — работаем текстом
-    if force_text or not settings.ENABLE_LOGO_MODE:
+    if force_text or (not settings.ENABLE_LOGO_MODE and not use_section_photos):
         try:
             if callback.message.photo:
                 await callback.message.delete()
@@ -194,10 +241,13 @@ async def edit_or_answer_photo(
     # Retry logic для сетевых ошибок
     for attempt in range(MAX_RETRIES):
         try:
-            await callback.message.edit_media(
+            result = await callback.message.edit_media(
                 InputMediaPhoto(media=media, caption=caption, parse_mode=(parse_mode or 'HTML')),
                 reply_markup=keyboard,
             )
+            # Кешируем file_id, если это секционное фото
+            if use_section_photos and section:
+                _cache_section_file_id(section, result)
             return  # Успешно — выходим
         except TelegramNetworkError as net_error:
             if attempt < MAX_RETRIES - 1:
@@ -247,19 +297,22 @@ async def edit_or_answer_photo(
                 await callback.message.delete()
             except Exception:
                 pass
-            logo_media = get_logo_media()
-            if logo_media is None:
+            fb_media = _get_section_or_logo_media()
+            if fb_media is None:
                 await _answer_text(callback, caption, keyboard, resolved_parse_mode)
                 return
             try:
-                # Отправим как фото с логотипом
+                # Отправим как фото (секционное или логотип)
                 result = await callback.message.answer_photo(
-                    photo=logo_media,
+                    photo=fb_media,
                     caption=caption,
                     reply_markup=keyboard,
                     parse_mode=resolved_parse_mode,
                 )
-                _cache_logo_file_id(result)
+                if use_section_photos and section:
+                    _cache_section_file_id(section, result)
+                else:
+                    _cache_logo_file_id(result)
             except (TelegramBadRequest, TelegramForbiddenError) as photo_error:
                 await _answer_text(callback, caption, keyboard, resolved_parse_mode, photo_error)
             except Exception:

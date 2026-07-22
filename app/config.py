@@ -1040,6 +1040,7 @@ class Settings(BaseSettings):
     HAPP_DOWNLOAD_LINK_PC: str | None = None
     HIDE_SUBSCRIPTION_LINK: bool = False
     ENABLE_LOGO_MODE: bool = True
+    ENABLE_SECTION_PHOTOS: bool = False
     LOGO_FILE: str = 'vpn_logo.png'
     SKIP_RULES_ACCEPT: bool = False
     SKIP_REFERRAL_CODE: bool = False

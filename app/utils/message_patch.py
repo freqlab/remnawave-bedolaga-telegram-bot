@@ -2,6 +2,7 @@ import hashlib
 import html as html_module
 import re
 import tempfile
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,12 @@ from aiogram.types import FSInputFile, InaccessibleMessage, InputMediaPhoto, Mes
 
 from app.config import settings
 from app.localization.texts import get_texts
+
+
+# Контекстная переменная для хранения текущего раздела бота.
+# Устанавливается middleware SectionPhotoMiddleware перед вызовом хендлера
+# и читается патчами Message.answer / Message.edit_text / edit_or_answer_photo.
+_current_section: ContextVar[str | None] = ContextVar('_current_section', default=None)
 
 
 logger = structlog.get_logger(__name__)
@@ -273,7 +280,10 @@ def is_topic_required_error(error: Exception) -> bool:
 
 async def _answer_with_photo(self: Message, text: str = None, **kwargs):
     # Уважаем флаг в рантайме: если логотип выключен — не подменяем ответ
-    if not settings.ENABLE_LOGO_MODE:
+    section = _current_section.get()
+    use_section_photos = settings.ENABLE_SECTION_PHOTOS and section is not None
+
+    if not settings.ENABLE_LOGO_MODE and not use_section_photos:
         # Фото-сообщения не показывают web page preview, текстовые — показывают.
         # Подавляем превью чтобы поведение не менялось при переключении режима логотипа.
         kwargs.setdefault('disable_web_page_preview', True)
@@ -286,6 +296,50 @@ async def _answer_with_photo(self: Message, text: str = None, **kwargs):
         pass
     language = _get_language(self)
 
+    # Секционные фото
+    if use_section_photos:
+        from .section_photos import cache_section_file_id, get_section_media
+
+        section_media = get_section_media(section)
+        if section_media is not None:
+            try:
+                result = await self.answer_photo(section_media, caption=text, **kwargs)
+                cache_section_file_id(section, result)
+                return result
+            except TelegramBadRequest as error:
+                if is_topic_required_error(error):
+                    return None
+                if is_privacy_restricted_error(error):
+                    fallback_text = append_privacy_hint(text, language)
+                    safe_kwargs = prepare_privacy_safe_kwargs(kwargs)
+                    try:
+                        return await _text_answer(self, fallback_text, **safe_kwargs)
+                    except TelegramBadRequest as inner_error:
+                        if is_topic_required_error(inner_error):
+                            return None
+                        raise
+                try:
+                    return await _text_answer(self, text, **kwargs)
+                except TelegramBadRequest as inner_error:
+                    if is_topic_required_error(inner_error):
+                        return None
+                    raise
+            except Exception:
+                try:
+                    return await _text_answer(self, text, **kwargs)
+                except TelegramBadRequest as inner_error:
+                    if is_topic_required_error(inner_error):
+                        return None
+                    raise
+        # Фолбэк на текст если нет медиа
+        try:
+            return await _text_answer(self, text, **kwargs)
+        except TelegramBadRequest as error:
+            if is_topic_required_error(error):
+                return None
+            raise
+
+    # Обычный логотип (legacy ENABLE_LOGO_MODE)
     if LOGO_PATH.exists():
         try:
             result = await self.answer_photo(get_logo_media(), caption=text, **kwargs)
@@ -327,8 +381,11 @@ async def _answer_with_photo(self: Message, text: str = None, **kwargs):
 
 
 async def _edit_with_photo(self: Message, text: str, **kwargs):
+    section = _current_section.get()
+    use_section_photos = settings.ENABLE_SECTION_PHOTOS and section is not None
+
     # Уважаем флаг в рантайме: если логотип выключен — не подменяем редактирование
-    if not settings.ENABLE_LOGO_MODE:
+    if not settings.ENABLE_LOGO_MODE and not use_section_photos:
         kwargs.setdefault('disable_web_page_preview', True)
         # Медиа-сообщения (фото/видео из рассылки и т.д.) не имеют text — edit_text упадёт.
         # Удаляем старое сообщение и отправляем новое.
@@ -365,7 +422,11 @@ async def _edit_with_photo(self: Message, text: str, **kwargs):
                 return await _text_answer(self, text, **kwargs)
         except Exception:
             pass
-        if LOGO_PATH.exists():
+        if use_section_photos:
+            from .section_photos import cache_section_file_id, get_section_media
+
+            media = get_section_media(section) or get_logo_media()
+        elif LOGO_PATH.exists():
             media = get_logo_media()
         else:
             media = self.photo[-1].file_id
@@ -377,7 +438,10 @@ async def _edit_with_photo(self: Message, text: str, **kwargs):
         else:
             media_kwargs['parse_mode'] = 'HTML'
         try:
-            return await self.edit_media(InputMediaPhoto(**media_kwargs), **edit_kwargs)
+            result = await self.edit_media(InputMediaPhoto(**media_kwargs), **edit_kwargs)
+            if use_section_photos and section:
+                cache_section_file_id(section, result)
+            return result
         except TelegramBadRequest as error:
             if is_topic_required_error(error):
                 return None

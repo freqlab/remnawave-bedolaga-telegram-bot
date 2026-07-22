@@ -75,6 +75,7 @@ from app.middlewares.global_error import GlobalErrorMiddleware
 from app.middlewares.logging import LoggingMiddleware
 from app.middlewares.maintenance import MaintenanceMiddleware
 from app.middlewares.subscription_checker import SubscriptionStatusMiddleware
+from app.middlewares.section_photo import SectionPhotoMiddleware
 from app.middlewares.throttling import ThrottlingMiddleware
 from app.services.maintenance_service import maintenance_service
 from app.utils.cache import cache
@@ -156,6 +157,11 @@ async def setup_bot() -> tuple[Bot, Dispatcher]:
     throttling_middleware = ThrottlingMiddleware()
     dp.message.middleware(throttling_middleware)
     dp.callback_query.middleware(throttling_middleware)
+
+    # Middleware для определения раздела бота по callback_data/команде
+    section_photo_middleware = SectionPhotoMiddleware()
+    dp.message.middleware(section_photo_middleware)
+    dp.callback_query.middleware(section_photo_middleware)
 
     # Middleware для автоматического логирования кликов по кнопкам и команд:
     # статистика конструктора меню (MENU_LAYOUT_ENABLED) и/или лог действий
