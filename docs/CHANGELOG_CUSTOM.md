@@ -55,6 +55,38 @@
 - После первой успешной отправки фото раздела file_id кешируется, чтобы Telegram
   не перезагружал файл при повторных отправках.
 
+### Маппинг фото разделов
+
+Фото помещаются в `assets/branding/section_photos/<section>.png`.
+
+| Файл | Раздел | Описание |
+|---|---|---|
+| `main_menu.png` | `main_menu` | Главное меню (кнопка «Назад в меню», команда `/start`) |
+| `subscription.png` | `subscription` | Подписка, тарифы, триал, устройства, трафик, промокоды, happ, autopay, gift |
+| `referral.png` | `referral` | Реферальная программа, статистика, вывод средств |
+| `support.png` | `support` | Поддержка, контакты, тикеты (создание/просмотр/ответ) |
+| `balance.png` | `balance` | Баланс, история пополнений, все платёжные методы, проверка статуса |
+| `info.png` | `info` | Информация: правила, FAQ, приватность, оферта, инфо-страницы, конкурсы, статус серверов |
+| `settings.png` | `settings` | Настройки: выбор языка, подтверждение WebAuth |
+| `default.png` | *(фолбэк)* | Используется для всех разделов, у которых нет отдельного фото |
+
+Цепочка фолбэка при отсутствии файла:
+`<section>.png` → `default.png` → `vpn_logo.png` (или `LOGO_FILE`) → текст без фото
+
+### Примеры callback_data по разделам
+
+**subscription:** `menu_subscription`, `menu_trial`, `menu_buy`, `subscription_*`, `trial_*`, `period_*`, `traffic_*`, `devices_*`, `country_*`, `autopay_*`, `buy_traffic`, `add_traffic_*`, `simple_subscription_*`, `gift_activate:*`, `activate_button`, `menu_promocode`, `promo_sub:*`
+
+**referral:** `menu_referral`, `referral_*` (включая `referral_withdrawal`, `referral_list_page_*`)
+
+**support:** `menu_support`, `create_ticket`, `my_tickets`, `view_ticket_*`, `reply_ticket_*`, `close_ticket_*`, `cancel_ticket_*`
+
+**balance:** `menu_balance`, `balance_history`, `balance_topup`, `topup_*`, `check_*` (все провайдеры: yookassa, cryptobot, heleket и т.д.)
+
+**info:** `menu_info`, `menu_rules`, `menu_faq`, `menu_privacy_policy`, `menu_public_offer`, `info_page:*`, `menu_server_status`, `contests_menu`, `menu_profile_unavailable`
+
+**settings:** `menu_language`, `language_select:*`, `webauth_*`
+
 ### Изменённые файлы
 - `app/utils/section_photos.py` — **новый модуль**. Управление фото разделов,
   маппинг callback_data → раздел, кеширование file_id.
