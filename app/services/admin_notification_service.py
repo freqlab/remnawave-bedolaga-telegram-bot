@@ -306,6 +306,7 @@ class AdminNotificationService:
             PromoCodeType.PROMO_GROUP.value: '👥 Промогруппа',
             PromoCodeType.DISCOUNT.value: '💸 Скидка',
             PromoCodeType.BALANCE_AND_DAYS.value: '💰📅 Баланс + дни подписки',
+            PromoCodeType.TARIFF.value: '📋 Тариф',
         }
 
         if not promo_type:

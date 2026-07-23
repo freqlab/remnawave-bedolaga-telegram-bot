@@ -61,6 +61,8 @@ def _serialize_promocode(promocode: PromoCode) -> PromoCodeResponse:
         is_valid=promocode.is_valid,
         valid_from=promocode.valid_from,
         valid_until=promocode.valid_until,
+        promo_group_id=promocode.promo_group_id,
+        tariff_id=promocode.tariff_id,
         created_by=promocode.created_by,
         created_at=promocode.created_at,
         updated_at=promocode.updated_at,
@@ -91,10 +93,13 @@ def _validate_create_payload(payload: PromoCodeCreateRequest) -> None:
 
     if (
         payload.type
-        in {PromoCodeType.SUBSCRIPTION_DAYS, PromoCodeType.TRIAL_SUBSCRIPTION, PromoCodeType.BALANCE_AND_DAYS}
+        in {PromoCodeType.SUBSCRIPTION_DAYS, PromoCodeType.TRIAL_SUBSCRIPTION, PromoCodeType.BALANCE_AND_DAYS, PromoCodeType.TARIFF}
         and payload.subscription_days <= 0
     ):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Subscription days must be positive for this promo code type')
+
+    if payload.type == PromoCodeType.TARIFF and payload.tariff_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Tariff ID is required for tariff promo codes')
 
     if normalized_valid_from and normalized_valid_until and normalized_valid_from > normalized_valid_until:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, 'valid_from cannot be greater than valid_until')
@@ -120,10 +125,15 @@ def _validate_update_payload(payload: PromoCodeUpdateRequest, promocode: PromoCo
         raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Balance bonus must be positive for balance promo codes')
 
     if (
-        new_type in {PromoCodeType.SUBSCRIPTION_DAYS, PromoCodeType.TRIAL_SUBSCRIPTION, PromoCodeType.BALANCE_AND_DAYS}
+        new_type in {PromoCodeType.SUBSCRIPTION_DAYS, PromoCodeType.TRIAL_SUBSCRIPTION, PromoCodeType.BALANCE_AND_DAYS, PromoCodeType.TARIFF}
         and subscription_days <= 0
     ):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Subscription days must be positive for this promo code type')
+
+    if new_type == PromoCodeType.TARIFF:
+        tariff_id = payload.tariff_id if payload.tariff_id is not None else promocode.tariff_id
+        if tariff_id is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Tariff ID is required for tariff promo codes')
 
     valid_from = _normalize_datetime(payload.valid_from) if payload.valid_from is not None else promocode.valid_from
     valid_until = _normalize_datetime(payload.valid_until) if payload.valid_until is not None else promocode.valid_until
@@ -206,6 +216,7 @@ async def create_promocode_endpoint(
         max_uses=effective_max_uses,
         valid_until=normalized_valid_until,
         created_by=creator_id,
+        tariff_id=payload.tariff_id,
     )
 
     update_fields = {}
@@ -215,6 +226,8 @@ async def create_promocode_endpoint(
         update_fields['is_active'] = payload.is_active
     if normalized_valid_until is not None:
         update_fields['valid_until'] = normalized_valid_until
+    if payload.promo_group_id is not None:
+        update_fields['promo_group_id'] = payload.promo_group_id
 
     if update_fields:
         promocode = await update_promocode(db, promocode, **update_fields)
@@ -265,6 +278,12 @@ async def update_promocode_endpoint(
 
     if payload.is_active is not None:
         updates['is_active'] = payload.is_active
+
+    if payload.promo_group_id is not None:
+        updates['promo_group_id'] = payload.promo_group_id
+
+    if payload.tariff_id is not None:
+        updates['tariff_id'] = payload.tariff_id
 
     if not updates:
         return _serialize_promocode(promocode)

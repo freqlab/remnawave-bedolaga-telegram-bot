@@ -146,6 +146,7 @@ class PromoCodeType(Enum):
     PROMO_GROUP = 'promo_group'
     DISCOUNT = 'discount'  # Одноразовая процентная скидка (balance_bonus_kopeks = процент, subscription_days = часы)
     BALANCE_AND_DAYS = 'balance_and_days'  # Комбинированный: и бонус на баланс, и дни подписки одним кодом
+    TARIFF = 'tariff'  # Подключение конкретного тарифа (использует tariff_id)
 
 
 class PaymentMethod(Enum):

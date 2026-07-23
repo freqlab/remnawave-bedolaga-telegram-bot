@@ -143,13 +143,23 @@ class PromoCodeService:
                     'subscription_not_found',
                     'trial_subscription_exists',
                     'trial_provisioning_failed',
+                    'subscription_exists',
+                    'different_tariff_active',
+                    'tariff_not_configured',
+                    'tariff_not_found',
+                    'tariff_provisioning_failed',
                 ):
                     return {'success': False, 'error': error_key}
                 raise
             balance_after_kopeks = user.balance_kopeks
 
             if (
-                promocode.type in (PromoCodeType.SUBSCRIPTION_DAYS.value, PromoCodeType.BALANCE_AND_DAYS.value)
+                promocode.type
+                in (
+                    PromoCodeType.SUBSCRIPTION_DAYS.value,
+                    PromoCodeType.BALANCE_AND_DAYS.value,
+                    PromoCodeType.TARIFF.value,
+                )
                 and promocode.subscription_days > 0
             ):
                 from app.utils.user_utils import mark_user_as_had_paid_subscription
@@ -543,6 +553,107 @@ class PromoCodeService:
                 # and returning success) refunds the reserved use + claimed increment, so
                 # the code is not silently burned and stays retryable.
                 raise ValueError('trial_subscription_exists')
+
+        if promocode.type == PromoCodeType.TARIFF.value:
+            if not promocode.tariff_id:
+                raise ValueError('tariff_not_configured')
+
+            from app.database.crud.tariff import get_tariff_by_id as get_tariff_crud
+            from app.database.crud.subscription import (
+                get_all_subscriptions_by_user_id,
+                get_subscription_by_user_id,
+            )
+            from app.database.models import SubscriptionStatus
+
+            tariff = await get_tariff_crud(db, promocode.tariff_id)
+            if not tariff:
+                raise ValueError('tariff_not_found')
+
+            # Проверяем, есть ли уже подписка на этот тариф (любой статус)
+            if settings.is_multi_tariff_enabled():
+                all_user_subs = await get_all_subscriptions_by_user_id(db, user.id)
+                same_tariff_sub = next((s for s in all_user_subs if s.tariff_id == promocode.tariff_id), None)
+                # В multi-tariff режиме проверяем, нет ли активной подписки на ДРУГОЙ тариф
+                active_other_tariff = next(
+                    (
+                        s
+                        for s in all_user_subs
+                        if s.tariff_id != promocode.tariff_id
+                        and s.status in (
+                            SubscriptionStatus.ACTIVE.value,
+                            SubscriptionStatus.TRIAL.value,
+                            SubscriptionStatus.LIMITED.value,
+                        )
+                    ),
+                    None,
+                )
+                if active_other_tariff:
+                    raise ValueError('different_tariff_active')
+            else:
+                single_sub = await get_subscription_by_user_id(db, user.id)
+                same_tariff_sub = single_sub if single_sub and single_sub.tariff_id == promocode.tariff_id else None
+                # В single-tariff режиме любая существующая подписка блокирует
+                if single_sub and single_sub.tariff_id != promocode.tariff_id:
+                    raise ValueError('different_tariff_active')
+
+            if same_tariff_sub:
+                raise ValueError('subscription_exists')
+
+            # Создаём подписку с параметрами тарифа
+            squads = list(tariff.allowed_squads or [])
+            if not squads:
+                from app.database.crud.server_squad import get_all_server_squads
+
+                all_servers, _ = await get_all_server_squads(db, available_only=True, limit=10_000)
+                squads = [s.squad_uuid for s in all_servers if s.squad_uuid]
+
+            end_date = datetime.now(UTC) + timedelta(days=promocode.subscription_days)
+
+            from app.database.crud.subscription import generate_unique_short_id
+
+            short_id = await generate_unique_short_id(db)
+
+            subscription = Subscription(
+                user_id=user.id,
+                status=SubscriptionStatus.ACTIVE.value,
+                is_trial=False,
+                start_date=datetime.now(UTC),
+                end_date=end_date,
+                traffic_limit_gb=tariff.traffic_limit_gb,
+                device_limit=tariff.device_limit,
+                connected_squads=squads,
+                autopay_enabled=settings.is_autopay_enabled_by_default(),
+                autopay_days_before=settings.DEFAULT_AUTOPAY_DAYS_BEFORE,
+                tariff_id=tariff.id,
+                remnawave_short_id=short_id,
+            )
+
+            db.add(subscription)
+            await db.flush()
+
+            # Создаём пользователя в RemnaWave
+            remnawave_user = await self.subscription_service.create_remnawave_user(db, subscription)
+            if remnawave_user is None:
+                logger.error(
+                    '❌ Тариф промокод: не удалось создать пользователя в RemnaWave — откатываем подписку',
+                    _format_user_log=self._format_user_log(user),
+                    subscription_id=subscription.id,
+                    code=promocode.code,
+                )
+                await db.delete(subscription)
+                await db.commit()
+                raise ValueError('tariff_provisioning_failed')
+
+            effects.append(
+                f'📋 Подключён тариф «{tariff.name}» на {promocode.subscription_days} дней'
+            )
+            logger.info(
+                '✅ Создана подписка через тариф промокод',
+                _format_user_log=self._format_user_log(user),
+                tariff_id=tariff.id,
+                days=promocode.subscription_days,
+                code=promocode.code,
+            )
 
         return '\n'.join(effects) if effects else '✅ Промокод активирован'
 

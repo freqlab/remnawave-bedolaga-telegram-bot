@@ -21,6 +21,8 @@ class PromoCodeResponse(BaseModel):
     is_valid: bool
     valid_from: datetime
     valid_until: datetime | None = None
+    promo_group_id: int | None = None
+    tariff_id: int | None = None
     created_by: int | None = None
     created_at: datetime
     updated_at: datetime
@@ -42,6 +44,8 @@ class PromoCodeCreateRequest(BaseModel):
     valid_from: datetime | None = None
     valid_until: datetime | None = None
     is_active: bool = True
+    promo_group_id: int | None = None
+    tariff_id: int | None = None
     created_by: int | None = None
 
 
@@ -54,6 +58,8 @@ class PromoCodeUpdateRequest(BaseModel):
     valid_from: datetime | None = None
     valid_until: datetime | None = None
     is_active: bool | None = None
+    promo_group_id: int | None = None
+    tariff_id: int | None = None
 
 
 class PromoCodeRecentUse(BaseModel):

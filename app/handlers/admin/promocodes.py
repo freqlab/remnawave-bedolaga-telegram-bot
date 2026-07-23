@@ -18,6 +18,7 @@ from app.database.crud.promocode import (
     get_promocodes_list,
     update_promocode,
 )
+from app.database.crud.tariff import get_all_tariffs, get_tariff_by_id
 from app.database.models import PromoCodeType, User
 from app.keyboards.admin import (
     get_admin_pagination_keyboard,
@@ -85,6 +86,7 @@ async def show_promocodes_list(callback: types.CallbackQuery, db_user: User, db:
             'promo_group': '🏷️',
             'discount': '💸',
             'balance_and_days': '💰📅',
+            'tariff': '📋',
         }.get(promo.type, '🎫')
 
         text += f'{status_emoji} {type_emoji} <code>{promo.code}</code>\n'
@@ -93,6 +95,9 @@ async def show_promocodes_list(callback: types.CallbackQuery, db_user: User, db:
         if promo.type == PromoCodeType.BALANCE.value:
             text += f'💰 Бонус: {settings.format_price(promo.balance_bonus_kopeks)}\n'
         elif promo.type == PromoCodeType.SUBSCRIPTION_DAYS.value:
+            text += f'📅 Дней: {promo.subscription_days}\n'
+        elif promo.type == PromoCodeType.TARIFF.value:
+            text += f'📋 Тариф: {html.escape(promo.tariff.name) if promo.tariff else "—"}\n'
             text += f'📅 Дней: {promo.subscription_days}\n'
         elif promo.type == PromoCodeType.BALANCE_AND_DAYS.value:
             text += f'💰 Бонус: {settings.format_price(promo.balance_bonus_kopeks)}\n'
@@ -165,6 +170,7 @@ async def show_promocode_management(callback: types.CallbackQuery, db_user: User
         'promo_group': '🏷️',
         'discount': '💸',
         'balance_and_days': '💰📅',
+        'tariff': '📋',
     }.get(promo.type, '🎫')
 
     text = f"""
@@ -178,6 +184,9 @@ async def show_promocode_management(callback: types.CallbackQuery, db_user: User
     if promo.type == PromoCodeType.BALANCE.value:
         text += f'💰 <b>Бонус:</b> {settings.format_price(promo.balance_bonus_kopeks)}\n'
     elif promo.type == PromoCodeType.SUBSCRIPTION_DAYS.value:
+        text += f'📅 <b>Дней:</b> {promo.subscription_days}\n'
+    elif promo.type == PromoCodeType.TARIFF.value:
+        text += f'📋 <b>Тариф:</b> {html.escape(promo.tariff.name) if promo.tariff else "—"}\n'
         text += f'📅 <b>Дней:</b> {promo.subscription_days}\n'
     elif promo.type == PromoCodeType.BALANCE_AND_DAYS.value:
         text += f'💰 <b>Бонус:</b> {settings.format_price(promo.balance_bonus_kopeks)}\n'
@@ -436,6 +445,7 @@ async def select_promocode_type(callback: types.CallbackQuery, db_user: User, st
         'group': '🏷️ Промогруппа',
         'discount': '💸 Одноразовая скидка',
         'combo': '💰📅 Баланс + дни подписки',
+        'tariff': '📋 Тариф',
     }
 
     await state.update_data(promocode_type=promo_type)
@@ -490,6 +500,41 @@ async def process_promocode_code(message: types.Message, db_user: User, state: F
     elif promo_type == 'discount':
         await message.answer(f'💸 <b>Промокод:</b> <code>{code}</code>\n\nВведите процент скидки (1-100):')
         await state.set_state(AdminStates.setting_promocode_value)
+    elif promo_type == 'tariff':
+        # Show tariff selection
+        tariffs = await get_all_tariffs(db, include_inactive=True)
+
+        if not tariffs:
+            await message.answer(
+                '❌ Тарифы не найдены. Создайте хотя бы один тариф.',
+                reply_markup=types.InlineKeyboardMarkup(
+                    inline_keyboard=[[types.InlineKeyboardButton(text='⬅️ Назад', callback_data='admin_promocodes')]]
+                ),
+            )
+            await state.clear()
+            return
+
+        keyboard = []
+        text = f'📋 <b>Промокод:</b> <code>{code}</code>\n\nВыберите тариф для подключения:\n\n'
+
+        for tariff in sorted(tariffs, key=lambda t: (t.display_order, t.name)):
+            status = '✅' if tariff.is_active else '❌'
+            traffic = '∞' if tariff.traffic_limit_gb == 0 else f'{tariff.traffic_limit_gb} ГБ'
+            text += f'{status} <b>{html.escape(tariff.name)}</b> — {traffic}, {tariff.device_limit} устр.\n'
+            keyboard.append(
+                [
+                    types.InlineKeyboardButton(
+                        text=f'{tariff.name} ({traffic}, {tariff.device_limit} устр.)',
+                        callback_data=f'promo_select_tariff_{tariff.id}',
+                    )
+                ]
+            )
+
+        keyboard.append([types.InlineKeyboardButton(text='❌ Отмена', callback_data='admin_promocodes')])
+
+        await message.answer(text, reply_markup=types.InlineKeyboardMarkup(inline_keyboard=keyboard))
+        await state.set_state(AdminStates.selecting_promo_group)
+
     elif promo_type == 'group':
         # Show promo group selection
         groups_with_counts = await get_promo_groups_with_counts(db, limit=50)
@@ -558,6 +603,37 @@ async def process_promo_group_selection(
 
 @admin_required
 @error_handler
+async def process_tariff_selection(
+    callback: types.CallbackQuery, db_user: User, state: FSMContext, db: AsyncSession
+):
+    """Handle tariff selection for promocode."""
+    try:
+        tariff_id = int(callback.data.split('_')[-1])
+    except (ValueError, IndexError):
+        await callback.answer('❌ Ошибка получения ID тарифа', show_alert=True)
+        return
+
+    tariff = await get_tariff_by_id(db, tariff_id)
+    if not tariff:
+        await callback.answer('❌ Тариф не найден', show_alert=True)
+        return
+
+    await state.update_data(tariff_id=tariff_id, tariff_name=tariff.name)
+
+    await callback.message.edit_text(
+        f'📋 <b>Промокод для тарифа</b>\n\n'
+        f'Тариф: {html.escape(tariff.name)}\n'
+        f'📶 Трафик: {"∞" if tariff.traffic_limit_gb == 0 else f"{tariff.traffic_limit_gb} ГБ"}\n'
+        f'💻 Устройства: {tariff.device_limit}\n\n'
+        f'Введите количество дней подписки:',
+    )
+
+    await state.set_state(AdminStates.setting_promocode_value)
+    await callback.answer()
+
+
+@admin_required
+@error_handler
 async def process_promocode_value(message: types.Message, db_user: User, state: FSMContext, db: AsyncSession):
     data = await state.get_data()
 
@@ -573,7 +649,7 @@ async def process_promocode_value(message: types.Message, db_user: User, state: 
         if promo_type in ['balance', 'combo'] and (value < 1 or value > 10000):
             await message.answer('❌ Сумма должна быть от 1 до 10,000 рублей')
             return
-        if promo_type in ['days', 'trial'] and (value < 1 or value > 3650):
+        if promo_type in ['days', 'trial', 'tariff'] and (value < 1 or value > 3650):
             await message.answer('❌ Количество дней должно быть от 1 до 3650')
             return
         if promo_type == 'discount' and (value < 1 or value > 100):
@@ -794,6 +870,7 @@ async def process_promocode_expiry(message: types.Message, db_user: User, state:
             'trial': PromoCodeType.TRIAL_SUBSCRIPTION,
             'group': PromoCodeType.PROMO_GROUP,
             'combo': PromoCodeType.BALANCE_AND_DAYS,
+            'tariff': PromoCodeType.TARIFF,
         }
 
         if promo_type == 'combo':
@@ -801,7 +878,9 @@ async def process_promocode_expiry(message: types.Message, db_user: User, state:
             subscription_days = data.get('promocode_combo_days', 0)
         else:
             balance_bonus_kopeks = value * 100 if promo_type == 'balance' else 0
-            subscription_days = value if promo_type in ['days', 'trial'] else 0
+            subscription_days = value if promo_type in ['days', 'trial', 'tariff'] else 0
+
+        tariff_id = data.get('tariff_id') if promo_type == 'tariff' else None
 
         promocode = await create_promocode(
             db=db,
@@ -813,14 +892,17 @@ async def process_promocode_expiry(message: types.Message, db_user: User, state:
             valid_until=valid_until,
             created_by=db_user.id,
             promo_group_id=promo_group_id if promo_type == 'group' else None,
+            tariff_id=tariff_id,
         )
 
+        tariff_name = data.get('tariff_name')
         type_names = {
             'balance': 'Пополнение баланса',
             'days': 'Дни подписки',
             'trial': 'Тестовая подписка',
             'group': 'Промогруппа',
             'combo': 'Баланс + дни подписки',
+            'tariff': 'Тариф',
         }
 
         summary_text = f"""
@@ -833,6 +915,9 @@ async def process_promocode_expiry(message: types.Message, db_user: User, state:
         if promo_type == 'balance':
             summary_text += f'💰 <b>Сумма:</b> {settings.format_price(promocode.balance_bonus_kopeks)}\n'
         elif promo_type in ['days', 'trial']:
+            summary_text += f'📅 <b>Дней:</b> {promocode.subscription_days}\n'
+        elif promo_type == 'tariff':
+            summary_text += f'📋 <b>Тариф:</b> {html.escape(tariff_name or "—")}\n'
             summary_text += f'📅 <b>Дней:</b> {promocode.subscription_days}\n'
         elif promo_type == 'combo':
             summary_text += f'💰 <b>Сумма:</b> {settings.format_price(promocode.balance_bonus_kopeks)}\n'
@@ -1170,6 +1255,7 @@ def register_handlers(dp: Dispatcher):
     dp.callback_query.register(start_promocode_creation, F.data == 'admin_promo_create')
     dp.callback_query.register(select_promocode_type, F.data.startswith('promo_type_'))
     dp.callback_query.register(process_promo_group_selection, F.data.startswith('promo_select_group_'))
+    dp.callback_query.register(process_tariff_selection, F.data.startswith('promo_select_tariff_'))
 
     dp.callback_query.register(show_promocode_management, F.data.startswith('promo_manage_'))
     dp.callback_query.register(toggle_promocode_first_purchase, F.data.startswith('promo_toggle_first_'))

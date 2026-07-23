@@ -226,6 +226,26 @@ async def process_promocode(message: types.Message, db_user: User, state: FSMCon
                 'PROMOCODE_TRIAL_PROVISIONING_FAILED',
                 '❌ Не удалось выдать триал прямо сейчас. Попробуйте позже.',
             ),
+            'subscription_exists': texts.t(
+                'PROMOCODE_SUBSCRIPTION_EXISTS',
+                '❌ Подписка на этот тариф уже существует.',
+            ),
+            'different_tariff_active': texts.t(
+                'PROMOCODE_DIFFERENT_TARIFF_ACTIVE',
+                '❌ Не применимо в данном тарифе.',
+            ),
+            'tariff_not_configured': texts.t(
+                'PROMOCODE_TARIFF_NOT_CONFIGURED',
+                '❌ Промокод не настроен. Обратитесь в поддержку.',
+            ),
+            'tariff_not_found': texts.t(
+                'PROMOCODE_TARIFF_NOT_FOUND',
+                '❌ Тариф не найден. Обратитесь в поддержку.',
+            ),
+            'tariff_provisioning_failed': texts.t(
+                'PROMOCODE_TARIFF_PROVISIONING_FAILED',
+                '❌ Не удалось подключить тариф прямо сейчас. Попробуйте позже.',
+            ),
             'server_error': texts.ERROR,
         }
 

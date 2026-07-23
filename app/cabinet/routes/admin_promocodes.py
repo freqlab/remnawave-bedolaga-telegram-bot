@@ -259,11 +259,16 @@ def _validate_create_payload(payload: PromoCodeCreateRequest) -> None:
         PromoCodeType.SUBSCRIPTION_DAYS,
         PromoCodeType.TRIAL_SUBSCRIPTION,
         PromoCodeType.BALANCE_AND_DAYS,
+        PromoCodeType.TARIFF,
     }:
         if payload.subscription_days <= 0:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST, 'Subscription days must be positive for this promo code type'
             )
+
+    if payload.type == PromoCodeType.TARIFF:
+        if payload.tariff_id is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Tariff ID is required for tariff promo codes')
 
     if payload.type == PromoCodeType.DISCOUNT:
         if payload.balance_bonus_kopeks <= 0 or payload.balance_bonus_kopeks > 100:
@@ -295,11 +300,16 @@ def _validate_update_payload(payload: PromoCodeUpdateRequest, promocode: PromoCo
     if new_type in {PromoCodeType.BALANCE, PromoCodeType.BALANCE_AND_DAYS} and balance_bonus <= 0:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Balance bonus must be positive for balance promo codes')
 
-    if new_type in {PromoCodeType.SUBSCRIPTION_DAYS, PromoCodeType.TRIAL_SUBSCRIPTION, PromoCodeType.BALANCE_AND_DAYS}:
+    if new_type in {PromoCodeType.SUBSCRIPTION_DAYS, PromoCodeType.TRIAL_SUBSCRIPTION, PromoCodeType.BALANCE_AND_DAYS, PromoCodeType.TARIFF}:
         if subscription_days <= 0:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST, 'Subscription days must be positive for this promo code type'
             )
+
+    if new_type == PromoCodeType.TARIFF:
+        tariff_id = payload.tariff_id if payload.tariff_id is not None else promocode.tariff_id
+        if tariff_id is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Tariff ID is required for tariff promo codes')
 
     if new_type == PromoCodeType.DISCOUNT:
         if balance_bonus <= 0 or balance_bonus > 100:
