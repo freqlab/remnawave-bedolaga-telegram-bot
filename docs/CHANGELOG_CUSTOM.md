@@ -3,6 +3,25 @@
 > Все доработки, не входящие в официальный релиз проекта.
 > Этот файл содержит правила оформления, шаблоны и историю изменений.
 
+## 2026-07-23 — Версия 5.1: Баг-фикс TARIFF промокодов
+
+### Что сделано
+Исправлены две ошибки при активации промокода типа «Тариф» у пользователя без подписки.
+
+### Причина / Исправление
+1. **`NameError: name 'Subscription' is not defined`** — в `_apply_promocode_effects` для TARIFF блока отсутствовал импорт `Subscription` из `app.database.models`. Исправлено: добавлен импорт `Subscription, SubscriptionStatus`.
+2. **`MissingGreenlet` при доступе к `db_user.language`** — после `db.rollback()` внутри `activate_promocode` SQLAlchemy expirит объект `db_user`. Последующее обращение к `db_user.language` в `process_promocode`, `handle_promo_subscription_select` и `_send_error_message` вызывало MissingGreenlet. Исправлено: `language` сохраняется в локальную переменную до вызова сервиса; в `_send_error_message` используется `getattr()`.
+
+### Изменённые файлы
+- `app/services/promocode_service.py` — добавлен импорт `Subscription, SubscriptionStatus` в TARIFF блок
+- `app/handlers/promocode.py` — сохранение `user_language` в `process_promocode` и `handle_promo_subscription_select`
+- `app/utils/decorators.py` — защита `_send_error_message` через `getattr(db_user, 'language', 'ru')`
+
+### Важные замечания
+- Требуется пересборка Docker: `docker compose up -d --build` (выполнено)
+
+================================================================================
+
 ## 2026-07-23 — Версия 5: Новый тип промокода «Тариф»
 
 ### Что сделано
