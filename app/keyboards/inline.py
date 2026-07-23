@@ -728,13 +728,11 @@ def get_main_menu_keyboard(
     subscription_buttons: list[InlineKeyboardButton] = []
 
     if show_trial:
-        subscription_buttons.append(InlineKeyboardButton(text=texts.MENU_TRIAL, callback_data='menu_trial'))
+        keyboard.append([InlineKeyboardButton(text=texts.MENU_TRIAL, callback_data='menu_trial')])
 
     if show_buy:
-        subscription_buttons.append(InlineKeyboardButton(text=texts.MENU_BUY_SUBSCRIPTION, callback_data='menu_buy'))
+        keyboard.append([InlineKeyboardButton(text=texts.MENU_BUY_SUBSCRIPTION, callback_data='menu_buy')])
 
-    if subscription_buttons:
-        paired_buttons.extend(subscription_buttons)
     if simple_purchase_button:
         paired_buttons.append(simple_purchase_button)
 
