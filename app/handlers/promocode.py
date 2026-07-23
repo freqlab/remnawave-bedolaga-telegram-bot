@@ -109,6 +109,10 @@ async def _restore_previous_state(state: FSMContext) -> None:
 @error_handler
 async def process_promocode(message: types.Message, db_user: User, state: FSMContext, db: AsyncSession):
     texts = get_texts(db_user.language)
+    # Сохраняем язык ДО вызова activate_promocode_for_registration, т.к. после
+    # rollback внутри сервиса db_user будет expiред и lazy-load language упадёт
+    # с MissingGreenlet в асинхронном контексте.
+    user_language = db_user.language
 
     code = message.text.strip()
 
@@ -118,7 +122,7 @@ async def process_promocode(message: types.Message, db_user: User, state: FSMCon
                 'PROMOCODE_EMPTY_INPUT',
                 '❌ Введите корректный промокод',
             ),
-            reply_markup=get_back_keyboard(db_user.language),
+            reply_markup=get_back_keyboard(user_language),
         )
         return
 
@@ -126,7 +130,7 @@ async def process_promocode(message: types.Message, db_user: User, state: FSMCon
 
     # Валидация формата
     if not validate_promo_format(code):
-        await message.answer(texts.PROMOCODE_INVALID, reply_markup=get_back_keyboard(db_user.language))
+        await message.answer(texts.PROMOCODE_INVALID, reply_markup=get_back_keyboard(user_language))
         return
 
     # Rate-limit на перебор
@@ -137,7 +141,7 @@ async def process_promocode(message: types.Message, db_user: User, state: FSMCon
                 'PROMO_RATE_LIMITED',
                 '⏳ Слишком много попыток. Попробуйте через {cooldown} сек.',
             ).format(cooldown=cooldown),
-            reply_markup=get_back_keyboard(db_user.language),
+            reply_markup=get_back_keyboard(user_language),
         )
         await _restore_previous_state(state)
         return
@@ -149,7 +153,7 @@ async def process_promocode(message: types.Message, db_user: User, state: FSMCon
                 'PROMO_DAILY_LIMIT',
                 '❌ Достигнут лимит активаций промокодов на сегодня. Попробуйте завтра.',
             ),
-            reply_markup=get_back_keyboard(db_user.language),
+            reply_markup=get_back_keyboard(user_language),
         )
         await _restore_previous_state(state)
         return
@@ -160,7 +164,7 @@ async def process_promocode(message: types.Message, db_user: User, state: FSMCon
         promo_limiter.record_activation(message.from_user.id)
         await message.answer(
             texts.PROMOCODE_SUCCESS.format(description=result['description']),
-            reply_markup=get_back_keyboard(db_user.language),
+            reply_markup=get_back_keyboard(user_language),
         )
         await _restore_previous_state(state)
     elif result.get('error') == 'select_subscription':
@@ -250,7 +254,7 @@ async def process_promocode(message: types.Message, db_user: User, state: FSMCon
         }
 
         error_text = error_messages.get(result['error'], texts.PROMOCODE_INVALID)
-        await message.answer(error_text, reply_markup=get_back_keyboard(db_user.language))
+        await message.answer(error_text, reply_markup=get_back_keyboard(user_language))
         await _restore_previous_state(state)
 
 
@@ -271,6 +275,7 @@ async def handle_promo_subscription_select(
         return
 
     texts = get_texts(db_user.language)
+    user_language = db_user.language  # сохраняем до вызова сервиса (защита от MissingGreenlet после rollback)
     result = await activate_promocode_for_registration(db, db_user.id, code, callback.bot, subscription_id=sub_id)
 
     if result['success']:
@@ -280,14 +285,14 @@ async def handle_promo_subscription_select(
         if callback.message:
             await callback.message.edit_text(
                 texts.PROMOCODE_SUCCESS.format(description=result['description']),
-                reply_markup=get_back_keyboard(db_user.language),
+                reply_markup=get_back_keyboard(user_language),
             )
     else:
         error_text = texts.PROMOCODE_INVALID
         if result.get('error') == 'subscription_not_found':
             error_text = texts.t('PROMOCODE_SUBSCRIPTION_NOT_FOUND', '❌ Подписка не найдена')
         if callback.message:
-            await callback.message.edit_text(error_text, reply_markup=get_back_keyboard(db_user.language))
+            await callback.message.edit_text(error_text, reply_markup=get_back_keyboard(user_language))
     await callback.answer()
 
 

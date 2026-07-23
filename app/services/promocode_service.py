@@ -563,7 +563,7 @@ class PromoCodeService:
                 get_all_subscriptions_by_user_id,
                 get_subscription_by_user_id,
             )
-            from app.database.models import SubscriptionStatus
+            from app.database.models import Subscription, SubscriptionStatus
 
             tariff = await get_tariff_crud(db, promocode.tariff_id)
             if not tariff:
