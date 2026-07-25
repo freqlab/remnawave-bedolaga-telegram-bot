@@ -2,6 +2,10 @@
 
 > Как обновить свой форк `remnawave-bedolaga-telegram-bot` при выходе новой версии upstream.
 
+> ⚠️ **Важно:** Обновления бота и кабинета (`bedolaga-cabinet`) выходят **синхронно**.  
+> После обновления бота — обязательно обнови и кабинет.  
+> Инструкция по кабинету: `/opt/bedolaga-cabinet/docs/UPDATE_GUIDE.md`
+
 ## Подготовка
 
 Перед началом убедись, что:
@@ -89,7 +93,18 @@ docker compose up -d --build
 
 > Пересобирает образ и перезапускает контейнеры. Флаг `--build` обязателен, если добавились новые Python-файлы.
 
-### Шаг 7: Запушить в свой форк
+### Шаг 7: Обновить кабинет (если релиз синхронный)
+
+Кабинет (`bedolaga-cabinet`) обычно обновляется одновременно с ботом.
+Перейди в его директорию и выполни те же шаги (с учётом особенностей сборки):
+
+```bash
+cd /opt/bedolaga-cabinet
+```
+
+Подробная инструкция: `docs/UPDATE_GUIDE.md` в проекте кабинета.
+
+### Шаг 8: Запушить в свой форк
 
 ```bash
 git push origin main
@@ -97,15 +112,49 @@ git push origin main
 
 > Отправляет обновлённую версию в твой репозиторий на GitHub.
 
+После бота — не забудь запушить и кабинет, если обновлял его.
+
 ## Если что-то пошло не так
 
 ```bash
 # Вернуться на резервную копию
-git checkout backup/v3.64.0-custom
+git checkout backup/v<версия>-custom
 
 # Посмотреть историю
 git log --oneline --graph --all
 
 # Отменить merge (если ещё не закоммичен)
 git merge --abort
+```
+
+## Комбинированное обновление (бот + кабинет)
+
+Рекомендуемый порядок при синхронном релизе — одной сессией:
+
+```bash
+# ===== 1. БОТ =====
+cd /opt/remnawave-bedolaga-telegram-bot
+
+git fetch upstream
+git branch backup/v<версия-бота>-custom
+git merge upstream/main
+# разреши конфликты, если есть
+python3 -c "import ast; ast.parse(open('app/config.py').read())"  # быстрая проверка
+docker compose up -d --build
+git push origin main
+
+# ===== 2. КАБИНЕТ =====
+cd /opt/bedolaga-cabinet
+
+git fetch upstream
+git branch backup/v<версия-кабинета>-custom
+git merge upstream/main
+# разреши конфликты, если есть
+docker compose build cabinet-frontend
+docker compose create cabinet-frontend
+mkdir -p ./cabinet-dist
+docker cp cabinet_frontend:/usr/share/nginx/html/. ./cabinet-dist/
+docker compose rm -sf cabinet-frontend
+docker restart nginx
+git push origin main
 ```
