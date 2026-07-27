@@ -634,6 +634,100 @@ async def process_tariff_selection(
 
 @admin_required
 @error_handler
+async def process_tariff_promo_group_yes(
+    callback: types.CallbackQuery, db_user: User, state: FSMContext, db: AsyncSession
+):
+    """Показать список промогрупп для прикрепления к tariff промокоду."""
+    groups_with_counts = await get_promo_groups_with_counts(db, limit=50)
+
+    if not groups_with_counts:
+        await callback.message.edit_text(
+            '❌ Промогруппы не найдены. Создайте хотя бы одну промогруппу.\n\n'
+            '📊 Введите количество использований промокода (или 0 для безлимита):',
+            reply_markup=types.InlineKeyboardMarkup(
+                inline_keyboard=[[types.InlineKeyboardButton(text='⬅️ Пропустить', callback_data='promo_tariff_group_skip')]]
+            ),
+        )
+        await state.set_state(AdminStates.setting_promocode_uses)
+        await callback.answer()
+        return
+
+    text = '🏷️ <b>Выберите промогруппу</b> (или пропустите):\n\n'
+    keyboard = []
+
+    for promo_group, user_count in groups_with_counts:
+        text += f'• {html.escape(promo_group.name)} (приоритет: {promo_group.priority}, пользователей: {user_count})\n'
+        keyboard.append(
+            [
+                types.InlineKeyboardButton(
+                    text=f'{promo_group.name} (↑{promo_group.priority})',
+                    callback_data=f'promo_tariff_group_select_{promo_group.id}',
+                )
+            ]
+        )
+
+    keyboard.append([types.InlineKeyboardButton(text='⏭ Пропустить', callback_data='promo_tariff_group_skip')])
+
+    await callback.message.edit_text(text, reply_markup=types.InlineKeyboardMarkup(inline_keyboard=keyboard))
+    await callback.answer()
+
+
+@admin_required
+@error_handler
+async def process_tariff_promo_group_no(
+    callback: types.CallbackQuery, db_user: User, state: FSMContext
+):
+    """Пропустить выбор промогруппы для tariff промокода."""
+    data = await state.get_data()
+    tariff_name = data.get('tariff_name', '')
+    days = data.get('promocode_value', 0)
+
+    text = f'📋 <b>Промокод для тарифа</b>\n\nТариф: {html.escape(tariff_name)}\n📅 Дней: {days}\n\n'
+    text += '📊 Введите количество использований промокода (или 0 для безлимита):'
+
+    await callback.message.edit_text(text, reply_markup=None)
+    await state.set_state(AdminStates.setting_promocode_uses)
+    await callback.answer()
+
+
+@admin_required
+@error_handler
+async def process_tariff_promo_group_select(
+    callback: types.CallbackQuery, db_user: User, state: FSMContext, db: AsyncSession
+):
+    """Сохранить выбранную промогруппу для tariff промокода."""
+    try:
+        promo_group_id = int(callback.data.split('_')[-1])
+    except (ValueError, IndexError):
+        await callback.answer('❌ Ошибка получения ID промогруппы', show_alert=True)
+        return
+
+    promo_group = await get_promo_group_by_id(db, promo_group_id)
+    if not promo_group:
+        await callback.answer('❌ Промогруппа не найдена', show_alert=True)
+        return
+
+    data = await state.get_data()
+    tariff_name = data.get('tariff_name', '')
+    days = data.get('promocode_value', 0)
+
+    await state.update_data(promo_group_id=promo_group_id, promo_group_name=promo_group.name)
+
+    text = (
+        f'📋 <b>Промокод для тарифа</b>\n\n'
+        f'Тариф: {html.escape(tariff_name)}\n'
+        f'📅 Дней: {days}\n'
+        f'🏷️ Промогруппа: {html.escape(promo_group.name)}\n\n'
+        f'📊 Введите количество использований промокода (или 0 для безлимита):'
+    )
+
+    await callback.message.edit_text(text)
+    await state.set_state(AdminStates.setting_promocode_uses)
+    await callback.answer()
+
+
+@admin_required
+@error_handler
 async def process_promocode_value(message: types.Message, db_user: User, state: FSMContext, db: AsyncSession):
     data = await state.get_data()
 
@@ -662,6 +756,23 @@ async def process_promocode_value(message: types.Message, db_user: User, state: 
         if promo_type == 'combo':
             await message.answer('📅 Шаг 2 из 2: введите количество дней подписки:')
             await state.set_state(AdminStates.setting_promocode_combo_days)
+            return
+
+        # Для tariff — после ввода дней спрашиваем про промогруппу
+        if promo_type == 'tariff':
+            await message.answer(
+                '🏷️ Хотите прикрепить промогруппу к промокоду?\n\n'
+                'Она будет назначена пользователю при активации промокода.',
+                reply_markup=types.InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [
+                            types.InlineKeyboardButton(text='✅ Да', callback_data='promo_ask_group_yes'),
+                            types.InlineKeyboardButton(text='❌ Нет', callback_data='promo_ask_group_no'),
+                        ]
+                    ]
+                ),
+            )
+            await state.set_state(AdminStates.selecting_promo_group)
             return
 
         await message.answer('📊 Введите количество использований промокода (или 0 для безлимита):')
@@ -891,7 +1002,7 @@ async def process_promocode_expiry(message: types.Message, db_user: User, state:
             max_uses=max_uses,
             valid_until=valid_until,
             created_by=db_user.id,
-            promo_group_id=promo_group_id if promo_type == 'group' else None,
+            promo_group_id=promo_group_id if promo_type in ('group', 'tariff') else None,
             tariff_id=tariff_id,
         )
 
@@ -1256,6 +1367,11 @@ def register_handlers(dp: Dispatcher):
     dp.callback_query.register(select_promocode_type, F.data.startswith('promo_type_'))
     dp.callback_query.register(process_promo_group_selection, F.data.startswith('promo_select_group_'))
     dp.callback_query.register(process_tariff_selection, F.data.startswith('promo_select_tariff_'))
+    dp.callback_query.register(process_tariff_promo_group_yes, F.data == 'promo_ask_group_yes')
+    dp.callback_query.register(process_tariff_promo_group_no, F.data == 'promo_ask_group_no')
+    dp.callback_query.register(process_tariff_promo_group_select, F.data.startswith('promo_tariff_group_select_'))
+    # promo_tariff_group_skip uses the same handler as promo_no
+    dp.callback_query.register(process_tariff_promo_group_no, F.data == 'promo_tariff_group_skip')
 
     dp.callback_query.register(show_promocode_management, F.data.startswith('promo_manage_'))
     dp.callback_query.register(toggle_promocode_first_purchase, F.data.startswith('promo_toggle_first_'))
