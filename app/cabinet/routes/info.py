@@ -417,12 +417,26 @@ async def get_legal_consent_config(
     """
     requirement = await legal_consent_service.get_requirement(db, language)
     doc_config = legal_consent_service.get_custom_document_config()
+    custom_urls = doc_config['document_urls']
+    custom_labels = doc_config['document_labels']
+
+    # В кастомном режиме используем ключи из JSON вместо стандартных
+    if custom_urls:
+        custom_documents = list(custom_urls.keys())
+        return LegalConsentConfigResponse(
+            required=True,
+            prechecked=requirement.prechecked,
+            documents=custom_documents,
+            document_urls=custom_urls,
+            document_labels=custom_labels,
+        )
+
     return LegalConsentConfigResponse(
         required=requirement.required,
         prechecked=requirement.prechecked,
         documents=requirement.documents,
-        document_urls=doc_config['document_urls'],
-        document_labels=doc_config['document_labels'],
+        document_urls=custom_urls,
+        document_labels=custom_labels,
     )
 
 
