@@ -90,6 +90,49 @@ def missing_documents(required: list[str], accepted: list[str] | None) -> list[s
     return [document for document in required if document not in accepted_set]
 
 
+def get_custom_document_config() -> dict:
+    """Вернуть URL и подписи документов из кастомного Info (INFO_BUTTON_MODE=custom).
+
+    Если режим standard — возвращает пустые словари.
+    Формат возврата: {"document_urls": {...}, "document_labels": {...}}
+    """
+    if not settings.is_custom_info_mode():
+        return {'document_urls': {}, 'document_labels': {}}
+
+    try:
+        from app.lib import custom_info as custom_info_module
+
+        config = custom_info_module.load_custom_info_config()
+        onboarding = custom_info_module.get_onboarding_submenu(config)
+        if not onboarding or not onboarding.buttons:
+            return {'document_urls': {}, 'document_labels': {}}
+
+        document_urls: dict[str, str] = {}
+        document_labels: dict[str, str] = {}
+        for btn in onboarding.buttons:
+            # Для ключа используем последний сегмент URL или fallback
+            url = btn.url or ''
+            if not url:
+                continue
+            doc_key = url.rstrip('/').rsplit('/', 1)[-1] if '/' in url else url
+            # Читаем русскую подпись или первый попавшийся текст
+            label_raw = btn.text
+            if isinstance(label_raw, dict):
+                label = label_raw.get('ru', next(iter(label_raw.values()), url))
+            else:
+                label = label_raw or url
+            # Очищаем label от эмодзи для читаемости
+            import re
+            label_clean = re.sub(r'[^\w\s]', '', label).strip() or url
+            document_urls[doc_key] = url
+            document_labels[doc_key] = label_clean
+
+        return {'document_urls': document_urls, 'document_labels': document_labels}
+    except Exception:
+        logger.warning('Не удалось загрузить кастомный Info для document_urls', exc_info=True)
+        return {'document_urls': {}, 'document_labels': {}}
+
+
 async def record_consent(
     db: AsyncSession,
     user: User,

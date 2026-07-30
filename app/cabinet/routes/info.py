@@ -121,6 +121,10 @@ class LegalConsentConfigResponse(BaseModel):
     required: bool
     prechecked: bool
     documents: list[str]
+    document_urls: dict[str, str] = {}
+    """URL документов для кастомного режима (INFO_BUTTON_MODE=custom)."""
+    document_labels: dict[str, str] = {}
+    """Подписи документов для кастомного режима (INFO_BUTTON_MODE=custom)."""
 
 
 # ============ Routes ============
@@ -412,10 +416,13 @@ async def get_legal_consent_config(
     документов — тексты и ссылки на них у кабинета свои.
     """
     requirement = await legal_consent_service.get_requirement(db, language)
+    doc_config = legal_consent_service.get_custom_document_config()
     return LegalConsentConfigResponse(
         required=requirement.required,
         prechecked=requirement.prechecked,
         documents=requirement.documents,
+        document_urls=doc_config['document_urls'],
+        document_labels=doc_config['document_labels'],
     )
 
 
