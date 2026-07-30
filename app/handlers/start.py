@@ -999,17 +999,51 @@ async def _continue_registration_after_language(
                 await _complete_registration_wrapper()
         return
 
-    rules_text = await get_rules(language)
-    try:
-        await answer_long_text(target_message, rules_text, reply_markup=get_rules_keyboard(language))
-    except TelegramForbiddenError:
-        logger.warning(
-            '⚠️ Пользователь заблокировал бота, пропускаем отправку правил',
-            from_user_id=callback.from_user.id if callback else message.from_user.id,
-        )
-        return
+    # Если включён кастомный режим Info — проверим, есть ли подменю для онбординга
+    if settings.is_custom_info_mode():
+        try:
+            from app.lib import custom_info as custom_info_module
+
+            config = custom_info_module.load_custom_info_config()
+            onboarding_submenu = custom_info_module.get_onboarding_submenu(config)
+        except Exception:
+            onboarding_submenu = None
+            logger.warning('⚠️ LANGUAGE: Ошибка загрузки кастомного Info для онбординга', exc_info=True)
+    else:
+        onboarding_submenu = None
+
+    if onboarding_submenu:
+        # Кастомный режим: показываем юр. документы из подменю + кнопки принять/отклонить
+        onboarding_title = custom_info_module.get_submenu_title(onboarding_submenu, language) or ''
+        onboarding_prompt = custom_info_module.get_submenu_prompt(onboarding_submenu, language) or ''
+        caption = f'{onboarding_title}\n\n{onboarding_prompt}' if onboarding_prompt else onboarding_title
+        try:
+            await target_message.answer(
+                caption,
+                reply_markup=custom_info_module.build_onboarding_keyboard(onboarding_submenu, language),
+                parse_mode='HTML',
+            )
+        except TelegramForbiddenError:
+            logger.warning(
+                '⚠️ Пользователь заблокировал бота, пропускаем отправку правил (custom)',
+                from_user_id=callback.from_user.id if callback else message.from_user.id,
+            )
+            return
+        logger.info('📋 LANGUAGE: Кастомные юр. документы (onboarding) отправлены после выбора языка')
+    else:
+        # Стандартный режим: показываем текст правил из БД
+        rules_text = await get_rules(language)
+        try:
+            await answer_long_text(target_message, rules_text, reply_markup=get_rules_keyboard(language))
+        except TelegramForbiddenError:
+            logger.warning(
+                '⚠️ Пользователь заблокировал бота, пропускаем отправку правил',
+                from_user_id=callback.from_user.id if callback else message.from_user.id,
+            )
+            return
+        logger.info('📋 LANGUAGE: Правила отправлены после выбора языка')
+
     await state.set_state(RegistrationStates.waiting_for_rules_accept)
-    logger.info('📋 LANGUAGE: Правила отправлены после выбора языка')
 
 
 async def cmd_start(message: types.Message, state: FSMContext, db: AsyncSession, db_user=None):

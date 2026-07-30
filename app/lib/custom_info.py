@@ -42,6 +42,8 @@ class CustomInfoSubmenu:
     """Заголовок подменю (опционально)."""
     prompt: str | dict[str, str] | None = None
     """Подпись под заголовком подменю (опционально)."""
+    onboarding: bool = False
+    """True — показывать это подменю при онбординге новых пользователей вместо стандартных правил."""
 
 
 @dataclass
@@ -104,6 +106,7 @@ def _parse_button(item: dict[str, Any], index: int = 0) -> CustomInfoButton | No
             buttons=parsed_buttons,
             title=submenu_data.get("title"),
             prompt=submenu_data.get("prompt"),
+            onboarding=submenu_data.get("onboarding", False),
         )
         return CustomInfoButton(text=text, type="submenu", submenu=submenu)
 
@@ -334,6 +337,37 @@ def build_submenu_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def build_onboarding_keyboard(
+    submenu: CustomInfoSubmenu,
+    language: str = "ru",
+) -> InlineKeyboardMarkup:
+    """Сформировать клавиатуру для онбординга: url-кнопки подменю + кнопки Принимаю/Отклоняю.
+
+    Args:
+        submenu: Подменю с юридическими документами (url-ссылки).
+        language: Код языка.
+
+    Returns:
+        InlineKeyboardMarkup со ссылками на документы и кнопками принять/отклонить.
+    """
+    from app.keyboards.inline import get_rules_keyboard
+
+    rows: list[list[InlineKeyboardButton]] = []
+
+    for btn in submenu.buttons:
+        label = _resolve_text(btn.text, language, fallback="Кнопка")
+        url = btn.url or ""
+        if url:
+            rows.append([InlineKeyboardButton(text=label, url=url)])
+
+    # Кнопки «Принимаю» / «Отклоняю» из стандартной клавиатуры правил
+    rules_kb = get_rules_keyboard(language)
+    for row in rules_kb.inline_keyboard:
+        rows.append(row)
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def get_submenu_by_index(config: CustomInfoConfig, index: int) -> CustomInfoSubmenu | None:
     """Получить подменю по индексу кнопки в корневом списке."""
     if index < 0 or index >= len(config.buttons):
@@ -342,6 +376,14 @@ def get_submenu_by_index(config: CustomInfoConfig, index: int) -> CustomInfoSubm
     if btn.type != "submenu":
         return None
     return btn.submenu
+
+
+def get_onboarding_submenu(config: CustomInfoConfig) -> CustomInfoSubmenu | None:
+    """Найти подменю с маркером onboarding=true для показа при регистрации."""
+    for btn in config.buttons:
+        if btn.type == "submenu" and btn.submenu and btn.submenu.onboarding:
+            return btn.submenu
+    return None
 
 
 def get_custom_info_title(config: CustomInfoConfig, language: str) -> str | None:
