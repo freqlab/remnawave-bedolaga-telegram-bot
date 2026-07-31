@@ -116,68 +116,51 @@
 
 ================================================================================
 
-## 2026-07-30 — Версия 8: Кастомные юридические ссылки в кабинете
+## 2026-07-30 — Версия 8: API кастомных юридических ссылок для кабинета
 
 ### Что сделано
-При `INFO_BUTTON_MODE=custom` веб-кабинет (account.bloomvpn.io) использует URL и подписи документов из `custom_info_buttons.json` (onboarding-подменю) вместо стандартных внутренних страниц.
+Расширен API кабинета, чтобы он мог отдавать URL и подписи юридических документов из `custom_info_buttons.json` (onboarding-подменю) при `INFO_BUTTON_MODE=custom`.
 
 ### Зачем
-Юридические документы в боте и кабинете теперь всегда ссылаются на одни и те же страницы (bloomvpn.io). При изменении документов достаточно обновить JSON — бот и кабинет подхватят синхронно.
+Кабинет должен ссылаться на те же юридические страницы, что и бот. Контент документов живёт в JSON — бот отдаёт его через API.
 
 ### Как работает
-- `GET /cabinet/info/legal-consent` теперь возвращает `document_urls` и `document_labels` — URL и подписи из кастомного JSON
-- **LegalConsent (чекбоксы на логине):** ссылки в чекбоксах ведут на внешние URL из JSON. Количество чекбоксов = количеству ссылок в юридическом подменю
-- **LegalFooter (футер):** ссылки «Оферта», «Политика» и т.д. ведут на внешние URL
-- **PublicLegal (/offer, /privacy, /recurrent):** редирект на соответствующий внешний URL
-- При `INFO_BUTTON_MODE=standard` поведение не меняется (внутренние страницы кабинета)
+- `GET /cabinet/info/legal-consent` теперь возвращает `document_urls` и `document_labels` — URL и подписи из кастомного JSON (для чекбоксов согласия на логине)
+- В кастомном режиме `documents` использует ключи из JSON вместо `public_offer`/`privacy_policy`
+- При `INFO_BUTTON_MODE=standard` поведение API не меняется
 
 ### Изменённые файлы
-**Бот:**
 - `app/services/legal_consent_service.py` — новая функция `get_custom_document_config()` (изменён)
-- `app/cabinet/routes/info.py` — расширена схема `LegalConsentConfigResponse` полями `document_urls` и `document_labels` (изменён)
-
-**Кабинет:**
-- `src/types/index.ts` — добавлены `document_urls` и `document_labels` в `LegalConsentConfig` (изменён)
-- `src/components/LegalConsent.tsx` — поддержка кастомных URL/подписей через пропсы (изменён)
-- `src/components/LegalFooter.tsx` — поддержка внешних URL через пропсы (изменён)
-- `src/pages/Login.tsx` — передача `documentUrls`/`documentLabels` в компоненты (изменён)
-- `src/pages/PublicLegal.tsx` — редирект на внешний URL, если доступен (изменён)
+- `app/cabinet/routes/info.py` — расширена схема `LegalConsentConfigResponse` полями `document_urls` и `document_labels`; в кастомном режиме `documents` берутся из JSON (изменён)
 
 ### Важные замечания
-- Требуется пересборка Docker и извлечение статики для обоих проектов (выполнено)
-- При `INFO_BUTTON_MODE=standard` кабинет работает как раньше (внутренние страницы `/offer`, `/privacy`)
+- Требуется пересборка Docker: `docker compose up -d --build` (выполнено)
+- Фронтенд-часть кабинета описана в `CHANGELOG_CUSTOM.md` кабинета
 - Если в кастомном JSON нет onboarding-подменю, `document_urls` пустые — кабинет использует стандартные ссылки
 
 ================================================================================
 
-## 2026-07-31 — Версия 9: Юридические вкладки в разделе Info кабинета
+## 2026-07-31 — Версия 9: API вкладок юр. документов для Info кабинета
 
 ### Что сделано
-При `INFO_BUTTON_MODE=custom` вкладки «Правила», «Конфиденциальность» и «Оферта» в разделе Info кабинета заменяются вкладками из юридического подменю `custom_info_buttons.json`. Каждая вкладка открывает внешний URL в новой вкладке браузера.
+Расширен API кабинета, чтобы раздел Info мог показывать вкладки юридических документов из `custom_info_buttons.json` при `INFO_BUTTON_MODE=custom`.
 
 ### Зачем
-В кастомном режиме юр. документы заданы в JSON внешними ссылками (bloomvpn.io). Внутренние вкладки кабинета дублировали их другим контентом. Теперь раздел Info использует те же ссылки, что и бот.
+Кабинет использует те же юридические ссылки, что и бот. Бэкенд отдаёт список ссылок и флаг видимости вкладки.
 
 ### Как работает
 - `GET /cabinet/info/visibility` возвращает `custom_legal: true` и `rules/privacy/offer: false` при `INFO_BUTTON_MODE=custom`
-- Новый эндпоинт `GET /cabinet/info/custom-legal` возвращает `{title, prompt, links: [{label, url}]}` из onboarding-подменю JSON
-- В `Info.tsx` вкладки из `custom-legal` вставляются сразу после FAQ; рендерятся как `<a target="_blank">`
-- Количество вкладок = количеству ссылок в JSON (динамически)
-- FAQ, Статусы (лояльность) и инфо-страницы из админки остаются без изменений
+- Новый эндпоинт `GET /cabinet/info/custom-legal` возвращает `{title, prompt, links: [{label, url}]}` из onboarding-подменю JSON (с учётом языка)
+- При `INFO_BUTTON_MODE=standard` — `custom_legal=false`, visibility как раньше
 
 ### Изменённые файлы
-**Бот:**
 - `app/services/legal_consent_service.py` — новая функция `get_custom_legal_content(language)` (изменён)
-- `app/cabinet/routes/info.py` — `custom_legal` в visibility, новые схемы `CustomLegalLink`/`CustomLegalContentResponse`, эндпоинт `/custom-legal` (изменён)
-
-**Кабинет:**
-- `src/api/info.ts` — тип `CustomLegalContent`, функция `getCustomLegal`, поле `custom_legal` в `InfoVisibility` (изменён)
-- `src/pages/Info.tsx` — юридические вкладки-ссылки после FAQ (изменён)
+- `app/cabinet/routes/info.py` — поле `custom_legal` в `InfoVisibilityResponse`, новые схемы `CustomLegalLink`/`CustomLegalContentResponse`, эндпоинт `/custom-legal` (изменён)
 
 ### Важные замечания
-- Требуется пересборка Docker и извлечение статики для обоих проектов (выполнено)
-- При `INFO_BUTTON_MODE=standard` поведение не меняется
-- Если в JSON нет onboarding-подменю или оно пустое — `custom_legal=false`, вкладки не показываются
+- Требуется пересборка Docker: `docker compose up -d --build` (выполнено)
+- Фронтенд-часть кабинета описана в `CHANGELOG_CUSTOM.md` кабинета
+- Если в JSON нет onboarding-подменю или оно пустое — `custom_legal=false`, эндпоинт вернёт пустые `links`
 
 ================================================================================
 
