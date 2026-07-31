@@ -80,11 +80,10 @@
 
 ### Изменённые файлы
 - `app/handlers/admin/promocodes.py` — новые хендлеры `process_tariff_promo_group_yes`, `process_tariff_promo_group_no`, `process_tariff_promo_group_select`; изменён `process_promocode_value` (опрос про группу) и `process_promocode_expiry` (передача `promo_group_id`)
-- `src/pages/AdminPromocodeCreate.tsx` (кабинет) — switch + select для промогруппы в tariff mode, передача `promo_group_id` в payload, валидация
 
 ### Важные замечания
-- Требуется пересборка Docker для обоих проектов: `docker compose up -d --build` (бот) и `docker compose build cabinet-frontend` + извлечение статики (кабинет) — выполнено.
-- Изменения в кабинете также включены в этот коммит (проект `/opt/bedolaga-cabinet`).
+- Требуется пересборка Docker: `docker compose up -d --build` (бот) — выполнено.
+- Фронтенд-часть кабинета (switch «Назначить промогруппу») описана в `CHANGELOG_CUSTOM.md` кабинета, Версия 3.1.
 
 ================================================================================
 
