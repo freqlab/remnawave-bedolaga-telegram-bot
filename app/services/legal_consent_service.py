@@ -133,6 +133,45 @@ def get_custom_document_config() -> dict:
         return {'document_urls': {}, 'document_labels': {}}
 
 
+def get_custom_legal_content(language: str = 'ru') -> dict:
+    """Вернуть содержимое юридического подменю из кастомного Info для кабинета.
+
+    Returns:
+        {"title": str, "prompt": str, "links": [{"label": str, "url": str}, ...]}
+    """
+    if not settings.is_custom_info_mode():
+        return {'title': '', 'prompt': '', 'links': []}
+
+    try:
+        from app.lib import custom_info as custom_info_module
+
+        config = custom_info_module.load_custom_info_config()
+        onboarding = custom_info_module.get_onboarding_submenu(config)
+        if not onboarding or not onboarding.buttons:
+            return {'title': '', 'prompt': '', 'links': []}
+
+        title = custom_info_module.get_submenu_title(onboarding, language) or ''
+        prompt = custom_info_module.get_submenu_prompt(onboarding, language) or ''
+
+        links: list[dict] = []
+        for btn in onboarding.buttons:
+            url = btn.url or ''
+            if not url:
+                continue
+            # Локализованная подпись кнопки (с эмодзи, как в JSON)
+            label_raw = btn.text
+            if isinstance(label_raw, dict):
+                label = label_raw.get(language, label_raw.get('ru', next(iter(label_raw.values()), url)))
+            else:
+                label = label_raw or url
+            links.append({'label': label, 'url': url})
+
+        return {'title': title, 'prompt': prompt, 'links': links}
+    except Exception:
+        logger.warning('Не удалось загрузить кастомный Info для custom-legal', exc_info=True)
+        return {'title': '', 'prompt': '', 'links': []}
+
+
 async def record_consent(
     db: AsyncSession,
     user: User,

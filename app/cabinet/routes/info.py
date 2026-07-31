@@ -113,6 +113,23 @@ class InfoVisibilityResponse(BaseModel):
     privacy: bool
     offer: bool
     recurrent: bool
+    custom_legal: bool = False
+    """Вкладка «Юридическая информация» из кастомного JSON (INFO_BUTTON_MODE=custom)."""
+
+
+class CustomLegalLink(BaseModel):
+    """Одна ссылка юридического документа из кастомного JSON."""
+
+    label: str
+    url: str
+
+
+class CustomLegalContentResponse(BaseModel):
+    """Содержимое вкладки «Юридическая информация» для кабинета."""
+
+    title: str = ''
+    prompt: str = ''
+    links: list[CustomLegalLink] = []
 
 
 class LegalConsentConfigResponse(BaseModel):
@@ -442,10 +459,29 @@ async def get_legal_consent_config(
 
 @router.get('/visibility', response_model=InfoVisibilityResponse)
 async def get_info_visibility():
+    # В кастомном режиме юр. вкладки (rules/privacy/offer) заменяются внешними
+    # ссылками из custom_info_buttons.json — показываем их выключенными.
+    custom_mode = settings.is_custom_info_mode()
     return InfoVisibilityResponse(
         faq=is_visible_in_web(settings.FAQ_DISPLAY_MODE),
-        rules=is_visible_in_web(settings.SERVICE_RULES_DISPLAY_MODE),
-        privacy=is_visible_in_web(settings.PRIVACY_POLICY_DISPLAY_MODE),
-        offer=is_visible_in_web(settings.PUBLIC_OFFER_DISPLAY_MODE),
+        rules=False if custom_mode else is_visible_in_web(settings.SERVICE_RULES_DISPLAY_MODE),
+        privacy=False if custom_mode else is_visible_in_web(settings.PRIVACY_POLICY_DISPLAY_MODE),
+        offer=False if custom_mode else is_visible_in_web(settings.PUBLIC_OFFER_DISPLAY_MODE),
         recurrent=is_visible_in_web(settings.RECURRENT_PAYMENTS_DISPLAY_MODE),
+        custom_legal=custom_mode and bool(
+            legal_consent_service.get_custom_legal_content()['links']
+        ),
     )
+
+
+@router.get('/custom-legal', response_model=CustomLegalContentResponse)
+async def get_custom_legal(
+    language: str = Query('ru', min_length=2, max_length=10),
+):
+    """Ссылки юридических документов из кастомного JSON (INFO_BUTTON_MODE=custom).
+
+    Публичный: нужен на Info-странице для отрисовки вкладок юр. документов.
+    """
+    normalized = language.split('-', 1)[0].lower()
+    content = legal_consent_service.get_custom_legal_content(normalized)
+    return CustomLegalContentResponse(**content)
